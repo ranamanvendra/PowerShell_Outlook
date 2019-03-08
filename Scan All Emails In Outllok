@@ -1,0 +1,124 @@
+#<#
+function subFolder([Parameter(Mandatory=$true)]$f) # this function is to scan sub folder for emails.
+    {
+        foreach ($fN in ($f.Folders | ForEach-Object { (Split-Path -Path $_.FolderPath -Leaf)}))
+        {
+            $fn = $FN -replace "%2F","/"
+            $fC = $f.Folders.Item($fN)
+            
+            if ($fc.folderpath -notlike "*Inbox\New Logged Tickets") # skipping one folder from scanning
+                {
+                    mailScan  $fC
+                    
+                }
+
+            if (($fC.folders).count)
+            {
+                subFolder  $fc
+            }
+        }
+    }
+
+
+
+function mailScan([Parameter(Mandatory=$true)]$fi) # scanning email where team has replied
+{
+  
+  #$mails = $fi.items | Select-Object -first 10
+  $time1 = get-date -date $(get-date).AddHours(-1) -format "MM/dd/yyyy hh:mm:ss tt" # Time period for which email will be scanned
+  $time2 = get-date -date $(get-date).AddHours(-2) -format "MM/dd/yyyy hh:mm:ss tt"
+
+  $mails = $fi.items | where {($_.ReceivedTime -gt $time2) -and ($_.ReceivedTime -lt $time1) }
+  #
+     
+  foreach ($mail in $mails)
+  {
+    $temp = $script:sent.Items | Where-Object {$_.subject.trim("RE: ,FW: ") -eq $mail.subject.trim("RE: ,FW: ")} # comparing Subject in sent item
+    #$mail.subject
+
+    if ($temp.count)
+    {
+        if (($temp | sort-object ReceivedTime -Descending)[0].ReceivedTime -gt $mail.ReceivedTime)
+        {
+            
+            "OK"
+        }
+        else
+        {
+            $script:report += [PSCustomObject] @{ 
+                        Subject = $mail.subject
+                        Path = $fi.folderpath
+                        Time = $mail.ReceivedTime
+                        Sender = $mail.SenderName
+                        }
+        }
+    }
+    else
+    {
+        $script:report += [PSCustomObject] @{ 
+                        Subject = $mail.subject
+                        Path = $fi.folderpath
+                        Time = $mail.ReceivedTime
+                        Sender = $mail.SenderName
+                        }
+    }
+ 
+  }
+
+
+ 
+}
+
+ 
+ 
+ Add-type -assembly "Microsoft.Office.Interop.Outlook" | out-null
+
+ $olFolders = "Microsoft.Office.Interop.Outlook.olDefaultFolders" -as [type]
+
+ $outlook = new-object -comobject outlook.application
+
+ $namespace = $outlook.GetNameSpace("MAPI")
+
+ $Inbox = $namespace.getDefaultFolder($olFolders::olFolderInbox)
+
+ #$LastVerb = "http://schemas.microsoft.com/mapi/proptag/0x10810003"
+
+ $script:sent = $namespace.getDefaultFolder($olFolders::olFolderSentMail)
+
+ #while ($true)
+ #{
+ $script:Report = @()
+
+ #$Inbox.Items | where {$_.PropertyAccessor.GetProperty($LastVerb) -gt 0 } | foreach {Add-Content C:\temp\s.txt "$_.subject,$_.ReceivedTime"}
+ 
+
+ 
+        mailScan  $inbox
+        if (($inbox.folders).count)
+            {
+                subFolder  $inbox
+            }
+        
+       
+        
+#########################################
+
+ 
+$Report | Export-Csv C:\temp\ex.csv -NoTypeInformation
+
+if ($Report.count){
+
+$HtmlReport = Import-Csv -Path C:\temp\ex.csv | ConvertTo-Html -Fragment
+$mailBody = 
+@"
+Hi All,</br>
+Here are the details of emails on which no one has replied. Please have a look.</br></br>
+$HtmlReport</br>
+
+"@
+
+$body = $mailbody -replace '<table>','<table border="2" style="width:50%">'
+
+Send-MailMessage -To <emails> -Subject "Help Desk E-mail Not Responded" -Body $body -From <email>  -SmtpServer <server> -BodyAsHtml
+
+}
